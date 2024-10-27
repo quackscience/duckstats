@@ -16,22 +16,23 @@ jobs:
     - name: Fetch and convert NDJSON to JSON array
       id: fetch_counts
       run: |
-        # Fetch the NDJSON data
-        response=$(curl -s "https://quackpy.fly.dev/?default_format=JSONEachRow&query=SELECT%20extension,%20SUM(downloads)%20AS%20total_downloads%20FROM%20(%20UNPIVOT%20(%20SELECT%20COLUMNS(*%20EXCLUDE%20(_last_update)%20REPLACE%20(filename.regexp_extract(%27/(\d+/\d+)\.json%27,%201)%20AS%20filename))%20FROM%20read_json([%20%27http://community-extensions.duckdb.org/download-stats-weekly/%27%20||%20strftime(x,%20%27%Y/%W%27)%20||%20%27.json%27%20FOR%20x%20IN%20range(TIMESTAMP%20%272024-10-01%27,%20now()::TIMESTAMP,%20INTERVAL%201%20WEEK)%20],%20filename%20=%20true%20)%20)%20ON%20COLUMNS(*%20EXCLUDE%20(filename))%20INTO%20NAME%20extension%20VALUE%20downloads%20)%20AS%20unpivoted_data%20GROUP%20BY%20extension%20ORDER%20BY%20total_downloads%20DESC;")
-        
-        # Check if the curl command succeeded
-        if [ $? -ne 0 ] || [ -z "$response" ]; then
-          echo "Error: Failed to fetch data or response is empty."
+        # Fetch the data with wget and save to output.json
+        wget -q -O output.json "https://quackpy.fly.dev/?default_format=JSONEachRow&query=SELECT%20extension,%20SUM(downloads)%20AS%20total_downloads%20FROM%20(%20UNPIVOT%20(%20SELECT%20COLUMNS(*%20EXCLUDE%20(_last_update)%20REPLACE%20(filename.regexp_extract(%27/(\d+/\d+)\.json%27,%201)%20AS%20filename))%20FROM%20read_json([%20%27http://community-extensions.duckdb.org/download-stats-weekly/%27%20||%20strftime(x,%20%27%Y/%W%27)%20||%20%27.json%27%20FOR%20x%20IN%20range(TIMESTAMP%20%272024-10-01%27,%20now()::TIMESTAMP,%20INTERVAL%201%20WEEK)%20],%20filename%20=%20true%20)%20)%20ON%20COLUMNS(*%20EXCLUDE%20(filename))%20INTO%20NAME%20extension%20VALUE%20downloads%20)%20AS%20unpivoted_data%20GROUP%20BY%20extension%20ORDER%20BY%20total_downloads%20DESC;"
+
+        # Check if the wget command succeeded and if output.json has content
+        if [ $? -ne 0 ] || [ ! -s output.json ]; then
+          echo "Error: Failed to fetch data or output.json is empty."
           exit 1
         fi
 
-        # Debugging output
-        echo "Raw response:"
-        echo "${response}"
-
         # Convert NDJSON to JSON array format
         echo "[" > total.json
-        echo "${response}" | sed 's/$/,/' | sed '$ s/,$//' >> total.json  # Add commas between objects, except the last one
+        # Read each line from output.json and add commas between JSON objects
+        while IFS= read -r line || [ -n "$line" ]; do
+          echo "  $line," >> total.json
+        done < output.json
+        # Remove the last comma and close the JSON array
+        sed -i '$ s/,$//' total.json
         echo "]" >> total.json
 
         # Output the final JSON for debugging
