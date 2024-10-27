@@ -5,6 +5,9 @@ on:
     - cron: '0 0 * * *'  # Runs every night at midnight UTC
   workflow_dispatch:     # Allows manual trigger of the action
 
+permissions:
+  contents: write
+
 jobs:
   update-download-count:
     runs-on: ubuntu-latest
@@ -52,13 +55,8 @@ jobs:
         release_name: Nightly Download Counts
         draft: false
         prerelease: true
-
-    - name: Upload total.json to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Release
+      uses: softprops/action-gh-release@v2
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./total.json
-        asset_name: total.json
-        asset_content_type: application/json
+          files: ./total.json
