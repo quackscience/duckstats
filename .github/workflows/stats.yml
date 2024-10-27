@@ -13,10 +13,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Fetch and convert NDJSON to JSON array
+    - name: Fetch and convert NDJSON to flat JSON object
       id: fetch_counts
       run: |
-        # Fetch the data with wget and save to output.json
+        # Fetch the data with wget and save directly to output.json
         wget -q -O output.json "https://quackpy.fly.dev/?default_format=JSONEachRow&query=SELECT%20extension,%20SUM(downloads)%20AS%20total_downloads%20FROM%20(%20UNPIVOT%20(%20SELECT%20COLUMNS(*%20EXCLUDE%20(_last_update)%20REPLACE%20(filename.regexp_extract(%27/(\d+/\d+)\.json%27,%201)%20AS%20filename))%20FROM%20read_json([%20%27http://community-extensions.duckdb.org/download-stats-weekly/%27%20||%20strftime(x,%20%27%Y/%W%27)%20||%20%27.json%27%20FOR%20x%20IN%20range(TIMESTAMP%20%272024-10-01%27,%20now()::TIMESTAMP,%20INTERVAL%201%20WEEK)%20],%20filename%20=%20true%20)%20)%20ON%20COLUMNS(*%20EXCLUDE%20(filename))%20INTO%20NAME%20extension%20VALUE%20downloads%20)%20AS%20unpivoted_data%20GROUP%20BY%20extension%20ORDER%20BY%20total_downloads%20DESC;"
 
         # Check if the wget command succeeded and if output.json has content
@@ -25,20 +25,21 @@ jobs:
           exit 1
         fi
 
-        # Convert NDJSON to JSON array format
-        echo "[" > total.json
-        # Read each line from output.json and add commas between JSON objects
+        # Convert NDJSON to flat JSON object
+        echo "{" > total.json
+        # Process each line, converting it to "extension_name": download_count format
         while IFS= read -r line || [ -n "$line" ]; do
-          echo "  $line," >> total.json
+          extension=$(echo "$line" | jq -r '.extension')
+          downloads=$(echo "$line" | jq -r '.total_downloads')
+          echo "  \"$extension\": $downloads," >> total.json
         done < output.json
-        # Remove the last comma and close the JSON array
+        # Remove the last comma and close the JSON object
         sed -i '$ s/,$//' total.json
-        echo "]" >> total.json
+        echo "}" >> total.json
 
         # Output the final JSON for debugging
         echo "Formatted JSON output:"
         cat total.json
-
 
     - name: Create or Update Release
       id: create_release
