@@ -1,0 +1,47 @@
+name: Update Download Counts and Release
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs every night at midnight UTC
+  workflow_dispatch:     # Allows manual trigger of the action
+
+jobs:
+  update-download-count:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Fetch and convert NDJSON to JSON array
+      id: fetch_counts
+      run: |
+        # Fetch the NDJSON data
+        response=$(curl -s "https://quackpy.fly.dev/?default_format=JSONEachRow&query=SELECT%20extension,%20SUM(downloads)%20AS%20total_downloads%20FROM%20(%20UNPIVOT%20(%20SELECT%20COLUMNS(*%20EXCLUDE%20(_last_update)%20REPLACE%20(filename.regexp_extract(%27/(\d+/\d+)\.json%27,%201)%20AS%20filename))%20FROM%20read_json([%20%27http://community-extensions.duckdb.org/download-stats-weekly/%27%20||%20strftime(x,%20%27%Y/%W%27)%20||%20%27.json%27%20FOR%20x%20IN%20range(TIMESTAMP%20%272024-10-01%27,%20now()::TIMESTAMP,%20INTERVAL%201%20WEEK)%20],%20filename%20=%20true%20)%20)%20ON%20COLUMNS(*%20EXCLUDE%20(filename))%20INTO%20NAME%20extension%20VALUE%20downloads%20)%20AS%20unpivoted_data%20GROUP%20BY%20extension%20ORDER%20BY%20total_downloads%20DESC;")
+        
+        # Convert NDJSON to JSON array format
+        echo "[" > total.json
+        echo "${response}" | sed 's/$/,/' | sed '$ s/,$//' >> total.json  # Add commas between objects, except the last one
+        echo "]" >> total.json
+
+    - name: Create or Update Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: nightly-downloads
+        release_name: Nightly Download Counts
+        draft: false
+        prerelease: true
+        overwrite: true  # Overwrite any existing release with the same tag
+
+    - name: Upload total.json to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./total.json
+        asset_name: total.json
+        asset_content_type: application/json
